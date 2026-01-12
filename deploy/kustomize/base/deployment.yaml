@@ -13,7 +13,7 @@ spec:
         app: glass
     spec:
       serviceAccountName: glass
-      terminationGracePeriodSecond: 20
+      terminationGracePeriodSeconds: 20
       containers:
         - name: glass
           image: glass:0.1.0
