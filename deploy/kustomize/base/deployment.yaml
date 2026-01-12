@@ -1,0 +1,54 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: glass
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: glass
+  template:
+    metadata:
+      labels:
+        app: glass
+    spec:
+      serviceAccountName: glass
+      terminationGracePeriodSecond: 20
+      containers:
+        - name: glass
+          image: glass:0.1.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: HTTP_PORT
+              value: "8080"
+            - name: LOG_LEVEL
+              value: "info"
+            - name: READINESS_STRICT
+              value: "false"
+          ports:
+            - name: http
+              containerPort: 8080
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 20m
+              memory: 32Mi
+            limits:
+              cpu: 200m
+              memory: 128Mi
+            securityContext:
+              allowPrivilegeEscalation: false
+              readOnlyRootFilesystem: true
+              capabilities:
+                drop: ["ALL"]
