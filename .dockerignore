@@ -1,0 +1,6 @@
+.git
+__MACOSX
+*.swp
+*.swo
+deploy
+test
