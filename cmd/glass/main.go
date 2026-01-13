@@ -1,7 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/timgst1/glass/internal/app"
 )
@@ -12,8 +17,20 @@ func main() {
 		log.Fatal(err)
 	}
 
-	h := app.BuildHTTPHandler(cfg)
-	srv := app.BuildServer(cfg, h)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	log.Fatal(srv.ListenAndServe())
+	rt, err := app.Build(ctx, cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	go func() {
+		<-ctx.Done()
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = rt.Server.Shutdown(shutdownCtx)
+	}()
+
+	log.Fatal(rt.Server.ListenAndServe())
 }

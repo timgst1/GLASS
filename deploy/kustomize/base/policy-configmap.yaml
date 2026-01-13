@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: glass-policy
+  namespace: glass
+data:
+  policy.yaml: |
+    apiVersion: glass.secretstore/v1alpha1
+    kind: Policy
+    metadata:
+      name: default
+    subjects: []
+    roles: []
+    bindings: []

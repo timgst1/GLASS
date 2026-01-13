@@ -18,6 +18,13 @@ spec:
         - name: glass
           image: glass:0.1.0
           imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: auth
+              mountPath: /etc/glass/auth
+              readOnly: true
+            - name: policy
+              mountPath: /etc/glass/policy
+              readOnly: true
           env:
             - name: HTTP_PORT
               value: "8080"
@@ -25,6 +32,12 @@ spec:
               value: "info"
             - name: READINESS_STRICT
               value: "false"
+            - name: AUTH_MODE
+              value: "bearer"
+            - name: AUTH_TOKEN_FILE
+              value: /etc/glass/auth/token
+            - name: POLICY_FILE
+              value: /etc/glass/policy/policy.yaml
           ports:
             - name: http
               containerPort: 8080
@@ -52,3 +65,13 @@ spec:
             readOnlyRootFilesystem: true
             capabilities:
               drop: ["ALL"]
+      volumes:
+        - name: auth
+          secret:
+              secretName: webhook-credentials
+              items:
+                - key: token
+                  path: token
+        - name: policy
+          configMap:
+            name: glass-policy
