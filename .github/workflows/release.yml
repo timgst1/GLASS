@@ -20,6 +20,14 @@ jobs:
         id: ver
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
+      # Lowercase GHCR repo path (Docker requires lowercase)
+      - name: Compute image & chart registry paths
+        id: paths
+        shell: bash
+        run: |
+          echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}/glass" >> $GITHUB_OUTPUT
+          echo "CHARTS=oci://ghcr.io/${GITHUB_REPOSITORY,,}/charts" >> $GITHUB_OUTPUT
+
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
@@ -42,8 +50,8 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}/glass:${{ steps.ver.outputs.VERSION }}
-            ghcr.io/${{ github.repository }}/glass:latest
+            ${{ steps.paths.outputs.IMAGE }}:${{ steps.ver.outputs.VERSION }}
+            ${{ steps.paths.outputs.IMAGE }}:latest
 
       - name: Set up Helm
         uses: azure/setup-helm@v4
@@ -57,6 +65,7 @@ jobs:
           ls -la *.tgz
 
       - name: Push chart to GHCR (OCI)
+        shell: bash
         run: |
           helm registry login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
-          helm push glass-${{ steps.ver.outputs.VERSION }}.tgz oci://ghcr.io/${{ github.repository }}/charts
+          helm push glass-${{ steps.ver.outputs.VERSION }}.tgz ${{ steps.paths.outputs.CHARTS }}
