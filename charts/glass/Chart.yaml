@@ -1,0 +1,7 @@
+apiVersion: v2
+name: glass
+description: Lightweight secret store for ESO (webhook) with hot-reload policies
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+

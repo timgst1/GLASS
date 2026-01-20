@@ -1,0 +1,65 @@
+replicaCount: 1
+
+image:
+  repository: ghcr.io/OWNER/glass
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  create: true
+  name: ""
+
+service:
+  type: ClusterIP
+  port: 8080
+
+auth:
+  mode: bearer
+  tokenFileMountPath: /etc/glass/auth/token
+  # Single-token oder multi-token file content:
+  tokenFileContent: |
+    webhook=CHANGE_ME
+
+policy:
+  mountPath: /etc/glass/policy
+  fileName: policy.yaml
+  content: |
+    apiVersion: glass.secretstore/v1alpha1
+    kind: Policy
+    metadata:
+      name: default
+    subjects:
+      - name: eso
+        match:
+          kind: bearer
+          name: webhook
+    roles:
+      - name: demo-reader
+        permissions:
+          - action: read
+            keyExact: demo
+    bindings:
+      - subject: eso
+        roles: [demo-reader]
+
+storage:
+  backend: sqlite
+  sqlitePath: /var/lib/glass/glass.db
+  # MVP: emptyDir, später PVC
+  persistence:
+    enabled: false
+    size: 1Gi
+    storageClassName: ""
+
+resources: {}
+podSecurityContext: {}
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop: ["ALL"]
+
+probes:
+  livenessPath: /healthz
+  readinessPath: /readyz
+

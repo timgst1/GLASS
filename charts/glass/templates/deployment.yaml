@@ -1,0 +1,83 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "glass.fullname" . }}
+  labels:
+    app.kubernetes.io/name: {{ include "glass.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ include "glass.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "glass.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+    spec:
+      serviceAccountName: {{ include "glass.serviceAccountName" . }}
+      containers:
+        - name: glass
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+          env:
+            - name: AUTH_MODE
+              value: {{ .Values.auth.mode | quote }}
+            - name: AUTH_TOKEN_FILE
+              value: {{ .Values.auth.tokenFileMountPath | quote }}
+            - name: POLICY_FILE
+              value: {{ printf "%s/%s" .Values.policy.mountPath .Values.policy.fileName | quote }}
+            - name: STORAGE_BACKEND
+              value: {{ .Values.storage.backend | quote }}
+            - name: SQLITE_PATH
+              value: {{ .Values.storage.sqlitePath | quote }}
+
+          livenessProbe:
+            httpGet:
+              path: {{ .Values.probes.livenessPath }}
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: {{ .Values.probes.readinessPath }}
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+
+          securityContext:
+{{ toYaml .Values.containerSecurityContext | indent 12 }}
+
+          volumeMounts:
+            - name: auth
+              mountPath: {{ dir .Values.auth.tokenFileMountPath }}
+              readOnly: true
+            - name: policy
+              mountPath: {{ .Values.policy.mountPath }}
+              readOnly: true
+            - name: data
+              mountPath: {{ dir .Values.storage.sqlitePath }}
+
+      volumes:
+        - name: auth
+          secret:
+            secretName: {{ include "glass.fullname" . }}-auth
+            items:
+              - key: token
+                path: {{ base .Values.auth.tokenFileMountPath }}
+        - name: policy
+          configMap:
+            name: {{ include "glass.fullname" . }}-policy
+        - name: data
+          {{- if .Values.storage.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "glass.fullname" . }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+

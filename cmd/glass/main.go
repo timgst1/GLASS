@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -22,6 +23,13 @@ func main() {
 
 	rt, err := app.Build(ctx, cfg)
 	if err != nil {
+		log.Fatal(err)
+	}
+	if rt.DB != nil {
+		defer rt.DB.Close()
+	}
+	err = rt.Server.ListenAndServe()
+	if err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 

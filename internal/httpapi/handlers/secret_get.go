@@ -25,6 +25,10 @@ func (h SecretHandler) GetSecret(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
+		if errors.Is(err, service.ErrForbidden) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
 	}

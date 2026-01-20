@@ -27,24 +27,18 @@ type Options struct {
 	Interval time.Duration
 }
 
-func NewManager(filePath string, log *slog.Logger, opt Options) *Manager {
-	if log == nil {
-		log = slog.Default()
-	}
-	if opt.Debounce <= 0 {
-		opt.Debounce = 200 * time.Millisecond
-	}
-	if opt.Interval <= 0 {
-		opt.Interval = 30 * time.Second
-	}
+func NewManager(filePath string) *Manager {
+	log := slog.Default()
+	debounce := 200 * time.Millisecond
+	interval := 30 * time.Second
 
 	return &Manager{
 		filePath: filePath,
-		dirPath:  filePath.Dir(filePath),
-		baseName: filePath.Base(filePath),
+		dirPath:  filepath.Dir(filePath),
+		baseName: filepath.Base(filePath),
 		log:      log,
-		debounce: opt.Debounce,
-		interval: opt.Interval,
+		debounce: debounce,
+		interval: interval,
 	}
 }
 
@@ -80,7 +74,7 @@ func (m *Manager) Start(ctx context.Context) error {
 				timer.Stop()
 			}
 			timer = time.AfterFunc(m.debounce, func() {
-				if err != m.reload(); err != nil {
+				if err := m.reload(); err != nil {
 					m.log.Error("policy reload failed (keeping last known good)", "err", err)
 				} else {
 					m.log.Info("policy reloaded")
@@ -96,7 +90,7 @@ func (m *Manager) Start(ctx context.Context) error {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				if err != m.reload(); err != nil {
+				if err := m.reload(); err != nil {
 					m.log.Error("policy periodic reload failed (keeping last known good)", "err", err)
 				}
 			case ev := <-w.Events:

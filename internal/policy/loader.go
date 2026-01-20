@@ -5,7 +5,7 @@ import (
 	"os"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"gopkg.in/yaml.v3"
 )
 
 func LoadFromFile(path string) (*Document, error) {
@@ -15,6 +15,9 @@ func LoadFromFile(path string) (*Document, error) {
 	}
 	var d Document
 	if err := yaml.Unmarshal(b, &d); err != nil {
+		return nil, err
+	}
+	if err := Validate(&d); err != nil {
 		return nil, err
 	}
 	return &d, nil
@@ -54,7 +57,7 @@ func Validate(d *Document) error {
 				return fmt.Errorf("policy: permission action missing in role %q", r.Name)
 			}
 			if p.KeyPrefix == "" && p.KeyExact == "" {
-				return fmt.Errorf("policy: permissions needs keyPrefix or keyExtract in role %q", r.Name)
+				return fmt.Errorf("policy: permissions needs keyPrefix or keyExact in role %q", r.Name)
 			}
 			if p.KeyPrefix != "" && !strings.HasSuffix(p.KeyPrefix, "/") {
 				return fmt.Errorf("policy: keyPrefix %q in role %q must end with '/'", p.KeyPrefix, r.Name)

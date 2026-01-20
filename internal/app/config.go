@@ -15,6 +15,8 @@ type Config struct {
 	AUTH_TOKEN_FILE  string
 	AUTH_MODE        string
 	POLICY_FILE      string
+	STORAGE_BACKEND  string
+	SQLITE_PATH      string
 }
 
 func LoadConfig() (Config, error) {
@@ -54,24 +56,37 @@ func LoadConfig() (Config, error) {
 	cfg.AUTH_TOKEN_FILE = os.Getenv("AUTH_TOKEN_FILE")
 
 	//AUTH_MODE
+	cfg.AUTH_MODE = os.Getenv("AUTH_MODE")
 	if cfg.AUTH_MODE == "" {
-		cfg.AUTH_MDOE = "bearer"
+		cfg.AUTH_MODE = "bearer"
 	}
 	switch cfg.AUTH_MODE {
 	case "bearer":
 		if strings.TrimSpace(cfg.AUTH_TOKEN_FILE) == "" {
-			return nil, fmt.Errorf("AUTH_TOKEN_FILE is required when AUTH_MODE=bearer")
+			return Config{}, fmt.Errorf("AUTH_TOKEN_FILE is required when AUTH_MODE=bearer")
 		}
 	case "noop":
 		//lokale entwicklung
 	default:
-		return nil, fmt.Errorf("invalid AUTH_MODE: %q (allowed: bearer, noop)", cfg.AUTH_MODE)
+		return Config{}, fmt.Errorf("invalid AUTH_MODE: %q (allowed: bearer, noop)", cfg.AUTH_MODE)
 	}
 
 	//POLICY_FILE
 	cfg.POLICY_FILE = os.Getenv("POLICY_FILE")
 	if cfg.POLICY_FILE == "" {
-		return nil, fmt.Errorf("POLICY_FILE is required")
+		return Config{}, fmt.Errorf("POLICY_FILE is required")
+	}
+
+	//STORAGE_BACKEND
+	cfg.STORAGE_BACKEND = os.Getenv("STORAGE_BACKEND")
+	if cfg.STORAGE_BACKEND == "" {
+		cfg.STORAGE_BACKEND = "sqlite"
+	}
+
+	//SQLITE_PATH
+	cfg.SQLITE_PATH = os.Getenv("SQLITE_PATH")
+	if cfg.SQLITE_PATH == "" {
+		cfg.SQLITE_PATH = "./data/glass.db"
 	}
 
 	return cfg, nil
