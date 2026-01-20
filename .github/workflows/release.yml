@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (e.g. 0.1.0)"
+        required: true
+        default: "0.1.0"
 
 permissions:
   contents: read
@@ -18,10 +24,16 @@ jobs:
 
       - name: Extract version
         id: ver
-        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "VERSION=${{ inputs.version }}" >> $GITHUB_OUTPUT
+          else
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
+          fi
 
-      # Lowercase GHCR repo path (Docker requires lowercase)
-      - name: Compute image & chart registry paths
+      # Docker/GHCR requires lowercase repo names
+      - name: Compute image & chart registry paths (lowercase)
         id: paths
         shell: bash
         run: |
@@ -59,6 +71,7 @@ jobs:
           version: v3.14.4
 
       - name: Package chart
+        shell: bash
         run: |
           helm lint charts/glass
           helm package charts/glass --version ${{ steps.ver.outputs.VERSION }} --app-version ${{ steps.ver.outputs.VERSION }}
@@ -69,3 +82,4 @@ jobs:
         run: |
           helm registry login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GITHUB_TOKEN }}
           helm push glass-${{ steps.ver.outputs.VERSION }}.tgz ${{ steps.paths.outputs.CHARTS }}
+
