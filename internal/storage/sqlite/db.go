@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	_ "modernc.org/sqlite"
 )
 
 func Open(path string) (*sql.DB, error) {
