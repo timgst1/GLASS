@@ -40,7 +40,7 @@ func (s *SQLiteSecretService) PutSecret(ctx context.Context, key, value string) 
 
 	//Retry bei Versions-Kollision (UNIQUE constraint) unter Concurrent Writes
 	for attempt := 0; attempt < 3; attempt++ {
-		tx, err := s.db.BeginTX(ctx, nil)
+		tx, err := s.db.BeginTx(ctx, nil)
 
 		if err != nil {
 			return 0, err
