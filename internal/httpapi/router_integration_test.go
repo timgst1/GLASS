@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/timgst1/glass/internal/authn"
-	"github.com/timgst1/glass/internal/authz"
 	"github.com/timgst1/glass/internal/httpapi"
 	"github.com/timgst1/glass/internal/policy"
 	"github.com/timgst1/glass/internal/service"
@@ -186,8 +185,6 @@ func newTestServerWithService(t *testing.T, doc *policy.Document, base service.S
 	if err != nil {
 		t.Fatalf("NewBearerFromFile: %v", err)
 	}
-
-	az := authz.NewRuntimeAuthorizer(staticPolicySource{doc: doc})
 	secretSvc := service.NewSecuredSecretService(base, az)
 
 	h := httpapi.NewRouter(httpapi.Deps{
@@ -609,6 +606,6 @@ func TestV1SecretsList_OKWithLeadingSlashInPrefix(t *testing.T) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		t.Fatal("expected %d, got %d", http.StatusOK, resp.StatusCode)
+		t.Fatalf("expected %d, got %d", http.StatusOK, resp.StatusCode)
 	}
 }
