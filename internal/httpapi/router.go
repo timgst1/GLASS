@@ -25,8 +25,12 @@ func NewRouter(deps Deps) http.Handler {
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Use(middleware.RequireAuth(deps.Authenticator))
+
 		r.Get("/secret", sh.GetSecret)
 		r.Put("/secret", sh.PutSecret)
+
+		r.Get("/secret/meta", sh.GetSecretMeta)
+		r.Get("/secrets", sh.ListSecrets)
 	})
 
 	return r

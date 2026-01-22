@@ -44,3 +44,45 @@ func (s *SecuredSecretService) PutSecret(ctx context.Context, key, value string)
 
 	return s.inner.PutSecret(ctx, key, value)
 }
+
+func (s *SecuredSecretService) GetSecretMeta(ctx context.Context, key string) (SecretMeta, error) {
+	sub, ok := authn.SubjectFromContext(ctx)
+	if !ok {
+		return SecretMeta{}, fmt.Errorf("%w: subject missing", ErrForbidden)
+	}
+
+	// WICHTIG: AuthZ muss den gleichen key prüfen, der auch gelesen wird
+	dec := s.az.Evaluate(sub, authz.ActionRead, key)
+	if !dec.Allowed {
+		return SecretMeta{}, fmt.Errorf("%w: %s", ErrForbidden, dec.Reason)
+	}
+
+	return s.inner.GetSecretMeta(ctx, key)
+}
+
+func (s *SecuredSecretService) ListSecrets(ctx context.Context, prefix string) ([]SecretItem, error) {
+	sub, ok := authn.SubjectFromContext(ctx)
+	if !ok {
+		return nil, fmt.Errorf("%w: subject missing", ErrForbidden)
+	}
+
+	dec := s.az.Evaluate(sub, authz.ActionList, prefix)
+	if !dec.Allowed {
+		return nil, fmt.Errorf("%w: %s", ErrForbidden, dec.Reason)
+	}
+
+	items, err := s.inner.ListSecrets(ctx, prefix)
+	if err != nil {
+		return nil, err
+	}
+
+	// Serverseitiges Filtern: nur read-allowed Keys zurückgeben
+	out := make([]SecretItem, 0, len(items))
+	for _, it := range items {
+		rd := s.az.Evaluate(sub, authz.ActionRead, it.Key)
+		if rd.Allowed {
+			out = append(out, it)
+		}
+	}
+	return out, nil
+}

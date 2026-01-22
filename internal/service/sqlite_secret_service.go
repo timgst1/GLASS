@@ -31,6 +31,68 @@ func (s *SQLiteSecretService) GetSecret(ctx context.Context, key string) (string
 	return v, nil
 }
 
+func (s *SQLiteSecretService) GetSecretMeta(ctx context.Context, key string) (SecretMeta, error) {
+	const q = `SELECT key, version, created_at, created_by FROM secrets WHERE key = ? ORDER BY version DESC LIMIT 1`
+
+	var (
+		k         string
+		version   int64
+		createdAt string
+		createdBy string
+	)
+
+	err := s.db.QueryRowContext(ctx, q, key).Scan(&k, &version, &createdAt, &createdBy)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return SecretMeta{}, ErrNotFound
+		}
+		return SecretMeta{}, err
+	}
+
+	return SecretMeta{
+		Key:       k,
+		Version:   version,
+		CreatedAt: createdAt,
+		CreatedBy: createdBy,
+	}, nil
+}
+
+func (s *SQLiteSecretService) ListSecrets(ctx context.Context, prefix string) ([]SecretItem, error) {
+	//Latest version per key for a prefix
+	const q = `
+SELECT s.key, s.value, s.version, s.created_at, s.created_by
+FROM secrets s
+JOIN (
+    SELECT key, MAX(version) AS max_version
+    FROM secrets
+    WHERE key LIKE ?
+    GROUP BY key
+) m ON s.key = m.key AND s.version = m.max_version
+ORDER BY s.key;
+`
+	like := prefix + "%"
+
+	rows, err := s.db.QueryContext(ctx, q, like)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := []SecretItem{}
+	for rows.Next() {
+		var it SecretItem
+		if err := rows.Scan(&it.Key, &it.Value, &it.Version, &it.CreatedAt, &it.CreatedBy); err != nil {
+			return nil, err
+		}
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return items, nil
+}
+
 func (s *SQLiteSecretService) PutSecret(ctx context.Context, key, value string) (int64, error) {
 	sub, _ := authn.SubjectFromContext(ctx)
 	createdBy := sub.Kind + ":" + sub.Name
