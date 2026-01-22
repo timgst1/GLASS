@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/timgst1/glass/internal/authn"
+	"github.com/timgst1/glass/internal/authz"
 	"github.com/timgst1/glass/internal/httpapi"
 	"github.com/timgst1/glass/internal/policy"
 	"github.com/timgst1/glass/internal/service"
@@ -185,6 +186,7 @@ func newTestServerWithService(t *testing.T, doc *policy.Document, base service.S
 	if err != nil {
 		t.Fatalf("NewBearerFromFile: %v", err)
 	}
+	az := authz.NewRuntimeAuthorizer(staticPolicySource{doc: doc})
 	secretSvc := service.NewSecuredSecretService(base, az)
 
 	h := httpapi.NewRouter(httpapi.Deps{
