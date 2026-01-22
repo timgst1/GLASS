@@ -9,7 +9,7 @@ import (
 )
 
 func (h SecretHandler) ListSecrets(w http.ResponseWriter, r *http.Request) {
-	prefix := r.URL.Query().Get("prefix")
+	prefix := normalizePrefix(r.URL.Query().Get("prefix"))
 	if prefix == "" {
 		http.Error(w, "missing query parameter: prefix", http.StatusBadRequest)
 		return

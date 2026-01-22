@@ -19,6 +19,8 @@ func (h SecretHandler) PutSecret(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid json body", http.StatusBadRequest)
 		return
 	}
+
+	in.Key = normalizeKey(in.Key)
 	if in.Key == "" {
 		http.Error(w, "missing field: key", http.StatusBadRequest)
 		return

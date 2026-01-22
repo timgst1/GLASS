@@ -575,3 +575,40 @@ func TestV1SecretsList_WithMeta_OK(t *testing.T) {
 		t.Fatalf("expected created_by to be set")
 	}
 }
+
+func TestV1Secret_OKWithLeadingSlashInKey(t *testing.T) {
+	srv, token := newTestServer(t, docAllowDemo())
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/secret?key=/demo", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected %d, got %d", http.StatusOK, resp.StatusCode)
+	}
+}
+
+func TestV1SecretsList_OKWithLeadingSlashInPrefix(t *testing.T) {
+	seed := map[string]string{"team-a/db": "dbpass"}
+	srv, token := newTestServerWithService(t, docAllowTeamAListReadDBOnly(), service.NewMemorySecretService(seed))
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/secrets?prefix=/team-a/", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Fatal("expected %d, got %d", http.StatusOK, resp.StatusCode)
+	}
+}

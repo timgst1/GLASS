@@ -13,7 +13,7 @@ type SecretHandler struct {
 }
 
 func (h SecretHandler) GetSecret(w http.ResponseWriter, r *http.Request) {
-	key := r.URL.Query().Get("key")
+	key := normalizeKey(r.URL.Query().Get("key"))
 	if key == "" {
 		http.Error(w, "missing query parameter: key", http.StatusBadRequest)
 		return
