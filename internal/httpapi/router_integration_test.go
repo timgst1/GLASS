@@ -481,6 +481,7 @@ func TestV1SecretsList_OKAndFiltersUnreadableKeys(t *testing.T) {
 	srv, token := newTestServerWithService(t, docAllowTeamAListReadDBOnly(), service.NewMemorySecretService(seed))
 	defer srv.Close()
 
+	// Default ist jetzt map + keys=relative => {"data":{"db":"..."}}
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/secrets?prefix=team-a/", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
@@ -494,27 +495,22 @@ func TestV1SecretsList_OKAndFiltersUnreadableKeys(t *testing.T) {
 		t.Fatalf("expected %d, got %d", http.StatusOK, resp.StatusCode)
 	}
 
-	type item struct {
-		Key   string `json:"key"`
-		Value string `json:"value"`
-	}
 	var out struct {
-		Items []item `json:"items"`
+		Data map[string]string `json:"data"`
 	}
-
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 
 	// Filter-Case: Policy erlaubt read nur auf team-a/db, nicht team-a/api
-	if len(out.Items) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(out.Items))
+	if len(out.Data) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(out.Data))
 	}
-	if out.Items[0].Key != "team-a/db" {
-		t.Fatalf("expected key team-a/db, got %q", out.Items[0].Key)
+	if out.Data["db"] != "dbpass" {
+		t.Fatalf("expected db=dbpass, got %q", out.Data["db"])
 	}
-	if out.Items[0].Value != "dbpass" {
-		t.Fatalf("expected value dbpass, got %q", out.Items[0].Value)
+	if _, exists := out.Data["api"]; exists {
+		t.Fatalf("expected api to be filtered out")
 	}
 }
 
@@ -526,6 +522,7 @@ func TestV1SecretsList_WithMeta_OK(t *testing.T) {
 	srv, token := newTestServerWithService(t, docAllowTeamAListReadDBOnly(), service.NewMemorySecretService(seed))
 	defer srv.Close()
 
+	// withMeta + default map => {"data":{"db":{value,version,created_at,created_by}}}
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/secrets?prefix=team-a/&withMeta=true", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 
@@ -539,39 +536,44 @@ func TestV1SecretsList_WithMeta_OK(t *testing.T) {
 		t.Fatalf("expected %d, got %d", http.StatusOK, resp.StatusCode)
 	}
 
-	type itemMeta struct {
-		Key       string `json:"key"`
+	type metaVal struct {
 		Value     string `json:"value"`
 		Version   int64  `json:"version"`
 		CreatedAt string `json:"created_at"`
 		CreatedBy string `json:"created_by"`
 	}
 	var out struct {
-		Items []itemMeta `json:"items"`
+		Data map[string]metaVal `json:"data"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
 
-	// Auch hier Filter-Case -> nur 1 Item (team-a/db)
-	if len(out.Items) != 1 {
-		t.Fatalf("expected 1 item, got %d", len(out.Items))
+	// Filter-Case -> nur db
+	if len(out.Data) != 1 {
+		t.Fatalf("expected 1 item, got %d", len(out.Data))
 	}
-	if out.Items[0].Key != "team-a/db" {
-		t.Fatalf("expected key team-a/db, got %q", out.Items[0].Key)
+
+	v, ok := out.Data["db"]
+	if !ok {
+		t.Fatalf("expected key db to exist")
 	}
-	if out.Items[0].Value != "dbpass" {
-		t.Fatalf("expected value dbpass, got %q", out.Items[0].Value)
+	if v.Value != "dbpass" {
+		t.Fatalf("expected value dbpass, got %q", v.Value)
 	}
-	if out.Items[0].Version < 1 {
-		t.Fatalf("expected version >= 1, got %d", out.Items[0].Version)
+	if v.Version < 1 {
+		t.Fatalf("expected version >= 1, got %d", v.Version)
 	}
-	if out.Items[0].CreatedAt == "" {
+	if v.CreatedAt == "" {
 		t.Fatalf("expected created_at to be set")
 	}
-	if out.Items[0].CreatedBy == "" {
+	if v.CreatedBy == "" {
 		t.Fatalf("expected created_by to be set")
+	}
+
+	if _, exists := out.Data["api"]; exists {
+		t.Fatalf("expected api to be filtered out")
 	}
 }
 
