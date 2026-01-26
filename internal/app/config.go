@@ -17,6 +17,10 @@ type Config struct {
 	POLICY_FILE      string
 	STORAGE_BACKEND  string
 	SQLITE_PATH      string
+
+	ENCRYPTION_MODE string
+	KEK_DIR         string
+	ACTIVE_KEK_ID   string
 }
 
 func LoadConfig() (Config, error) {
@@ -89,5 +93,25 @@ func LoadConfig() (Config, error) {
 		cfg.SQLITE_PATH = "./data/glass.db"
 	}
 
+	cfg.ENCRYPTION_MODE = os.Getenv("ENCRYPTION_MODE")
+	if cfg.ENCRYPTION_MODE == "" {
+		cfg.ENCRYPTION_MODE = "none"
+	}
+	switch cfg.ENCRYPTION_MODE {
+	case "none", "envelope":
+	default:
+		return Config{}, fmt.Errorf("invalid ENCRYPTION_MODE: %q (allowed: none, envelope)", cfg.ENCRYPTION_MODE)
+	}
+
+	cfg.KEK_DIR = os.Getenv("KEK_DIR")
+	cfg.ACTIVE_KEK_ID = os.Getenv("ACTIVE_KEK_ID")
+	if cfg.ACTIVE_KEK_ID == "" {
+		cfg.ACTIVE_KEK_ID = "default"
+	}
+	if cfg.ENCRYPTION_MODE == "envelope" {
+		if strings.TrimSpace(cfg.KEK_DIR) == "" {
+			return Config{}, fmt.Errorf("KEK_DIR is required when ENCRYPTION_MODE=envelope")
+		}
+	}
 	return cfg, nil
 }

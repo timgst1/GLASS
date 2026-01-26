@@ -8,27 +8,64 @@ import (
 	"strings"
 
 	"github.com/timgst1/glass/internal/authn"
+	"github.com/timgst1/glass/internal/crypto/envelope"
 )
 
 type SQLiteSecretService struct {
-	db *sql.DB
+	db  *sql.DB
+	enc *envelope.Envelope
 }
 
-func NewSQLiteSecretService(db *sql.DB) *SQLiteSecretService {
-	return &SQLiteSecretService{db: db}
+func NewSQLiteSecretService(db *sql.DB, enc *envelope.Envelope) *SQLiteSecretService {
+	return &SQLiteSecretService{db: db, enc: enc}
 }
 
 func (s *SQLiteSecretService) GetSecret(ctx context.Context, key string) (string, error) {
-	const q = `SELECT value FROM secrets WHERE key = ? ORDER BY version DESC LIMIT 1`
-	var v string
-	err := s.db.QueryRowContext(ctx, q, key).Scan(&v)
+	const q = `
+SELECT version, value, enc, value_nonce, wrapped_dek, wrap_nonce, kek_id
+FROM secrets
+WHERE key = ?
+ORDER BY version DESC
+LIMIT 1`
+
+	var (
+		version    int64
+		value      string
+		encFlag    int
+		valueNonce string
+		wrappedDEK string
+		wrapNonce  string
+		kekID      string
+	)
+
+	err := s.db.QueryRowContext(ctx, q, key).
+		Scan(&version, &value, &encFlag, &valueNonce, &wrappedDEK, &wrapNonce, &kekID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return "", ErrNotFound
 		}
 		return "", err
 	}
-	return v, nil
+
+	if encFlag == 0 {
+		return value, nil
+	}
+	if s.enc == nil {
+		return "", fmt.Errorf("encrypted secret but encryption is not configured")
+	}
+
+	pt, err := s.enc.Decrypt(key, version, envelope.EncryptedValue{
+		Enc:        encFlag,
+		KekID:      kekID,
+		Ciphertext: value,
+		Nonce:      valueNonce,
+		WrappedDEK: wrappedDEK,
+		WrapNonce:  wrapNonce,
+	})
+	if err != nil {
+		return "", err
+	}
+	return string(pt), nil
 }
 
 func (s *SQLiteSecretService) GetSecretMeta(ctx context.Context, key string) (SecretMeta, error) {
@@ -100,10 +137,9 @@ func (s *SQLiteSecretService) PutSecret(ctx context.Context, key, value string) 
 		createdBy = "unknown"
 	}
 
-	//Retry bei Versions-Kollision (UNIQUE constraint) unter Concurrent Writes
+	// Retry bei Versions-Kollision (UNIQUE constraint) unter Concurrent Writes
 	for attempt := 0; attempt < 3; attempt++ {
 		tx, err := s.db.BeginTx(ctx, nil)
-
 		if err != nil {
 			return 0, err
 		}
@@ -120,13 +156,34 @@ func (s *SQLiteSecretService) PutSecret(ctx context.Context, key, value string) 
 			next = cur.Int64 + 1
 		}
 
-		_, err = tx.ExecContext(ctx,
-			`INSERT INTO secrets(key, version, value, created_by) VALUES(?, ?, ?, ?)`,
-			key, next, value, createdBy,
+		encFlag := 0
+		storeValue := value
+		valueNonce := ""
+		wrappedDEK := ""
+		wrapNonce := ""
+		kekID := ""
+
+		if s.enc != nil {
+			ev, err := s.enc.Encrypt(key, next, []byte(value))
+			if err != nil {
+				_ = tx.Rollback()
+				return 0, err
+			}
+			encFlag = ev.Enc
+			storeValue = ev.Ciphertext
+			valueNonce = ev.Nonce
+			wrappedDEK = ev.WrappedDEK
+			wrapNonce = ev.WrapNonce
+			kekID = ev.KekID
+		}
+
+		_, err = tx.ExecContext(ctx, `
+INSERT INTO secrets(key, version, value, enc, value_nonce, wrapped_dek, wrap_nonce, kek_id, created_by)
+VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			key, next, storeValue, encFlag, valueNonce, wrappedDEK, wrapNonce, kekID, createdBy,
 		)
 		if err != nil {
 			_ = tx.Rollback()
-			//Versions-Kontrolle -> retry
 			if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 				continue
 			}

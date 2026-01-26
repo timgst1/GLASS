@@ -23,7 +23,7 @@ func newTestSQLiteSecretService(t *testing.T) *SQLiteSecretService {
 		t.Fatalf("sqlite.Migrate: %v", err)
 	}
 
-	return NewSQLiteSecretService(db)
+	return NewSQLiteSecretService(db, nil)
 }
 
 func TestSQLiteSecretService_PutGet_Versioning(t *testing.T) {

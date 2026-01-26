@@ -175,7 +175,7 @@ func newSQLiteService(t *testing.T) service.SecretService {
 		t.Fatalf("sqlite.Migrate: %v", err)
 	}
 
-	return service.NewSQLiteSecretService(db)
+	return service.NewSQLiteSecretService(db, nil)
 }
 
 func newTestServerWithService(t *testing.T, doc *policy.Document, base service.SecretService) (*httptest.Server, string) {

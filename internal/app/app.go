@@ -9,6 +9,7 @@ import (
 
 	"github.com/timgst1/glass/internal/authn"
 	"github.com/timgst1/glass/internal/authz"
+	"github.com/timgst1/glass/internal/crypto/envelope"
 	"github.com/timgst1/glass/internal/httpapi"
 	"github.com/timgst1/glass/internal/policy"
 	"github.com/timgst1/glass/internal/service"
@@ -30,7 +31,6 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 		if err != nil {
 			return nil, err
 		}
-
 		a = bearer
 	case "noop":
 		a = authn.Noop{}
@@ -57,7 +57,19 @@ func Build(ctx context.Context, cfg Config) (*Runtime, error) {
 			return nil, err
 		}
 		db = d
-		secretSvc = service.NewSQLiteSecretService(db)
+
+		var enc *envelope.Envelope
+		if cfg.ENCRYPTION_MODE == "envelope" {
+			kr, err := envelope.LoadKeyring(cfg.KEK_DIR, cfg.ACTIVE_KEK_ID)
+			if err != nil {
+				_ = d.Close()
+				return nil, err
+			}
+			enc = envelope.New(kr)
+		}
+
+		secretSvc = service.NewSQLiteSecretService(db, enc)
+
 	case "memory":
 		secretSvc = service.NewMemorySecretService(map[string]string{"demo": "hello"})
 
