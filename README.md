@@ -1,4 +1,3 @@
-````markdown
 # glass – Quickstart & Cluster-Bedienung (inkl. Encryption + KEK Rotation)
 
 `glass` ist ein schlanker Secretstore für Kubernetes: Secrets werden per HTTP API geschrieben/gelesen und können z.B. via External Secrets Operator (ESO) in Kubernetes Secrets synchronisiert werden. Persistenz läuft über SQLite (PVC). Secrets werden im Storage per Envelope Encryption verschlüsselt (DEK pro Version, KEK aus K8s Secret mount).
