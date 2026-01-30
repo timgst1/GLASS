@@ -25,6 +25,7 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.service.port }}
+
           env:
             - name: AUTH_MODE
               value: {{ .Values.auth.mode | quote }}
@@ -37,12 +38,22 @@ spec:
             - name: SQLITE_PATH
               value: {{ .Values.storage.sqlitePath | quote }}
 
+            {{- if ne .Values.encryption.mode "none" }}
+            - name: ENCRYPTION_MODE
+              value: {{ .Values.encryption.mode | quote }}
+            - name: KEK_DIR
+              value: {{ .Values.encryption.kekDir | quote }}
+            - name: ACTIVE_KEK_ID
+              value: {{ .Values.encryption.activeKekId | quote }}
+            {{- end }}
+
           livenessProbe:
             httpGet:
               path: {{ .Values.probes.livenessPath }}
               port: http
             initialDelaySeconds: 2
             periodSeconds: 10
+
           readinessProbe:
             httpGet:
               path: {{ .Values.probes.readinessPath }}
@@ -63,6 +74,12 @@ spec:
             - name: data
               mountPath: {{ dir .Values.storage.sqlitePath }}
 
+            {{- if ne .Values.encryption.mode "none" }}
+            - name: keks
+              mountPath: {{ .Values.encryption.kekDir | quote }}
+              readOnly: true
+            {{- end }}
+
       volumes:
         - name: auth
           secret:
@@ -70,9 +87,11 @@ spec:
             items:
               - key: token
                 path: {{ base .Values.auth.tokenFileMountPath }}
+
         - name: policy
           configMap:
             name: {{ include "glass.fullname" . }}-policy
+
         - name: data
           {{- if .Values.storage.persistence.enabled }}
           persistentVolumeClaim:
@@ -80,4 +99,10 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
+
+        {{- if ne .Values.encryption.mode "none" }}
+        - name: keks
+          secret:
+            secretName: {{ .Values.encryption.kekSecretName | quote }}
+        {{- end }}
 

@@ -51,6 +51,12 @@ storage:
     size: 1Gi
     storageClassName: ""
 
+encryption:
+  mode: none
+  kekDir: /mnt/keks
+  activeKekId: default
+  kekSecretName: glass-kek
+
 resources: {}
 podSecurityContext: {}
 containerSecurityContext:
