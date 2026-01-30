@@ -35,49 +35,40 @@
 kubectl create namespace glass
 ```
 
-### 2) Bearer-Token Secret erstellen (Auth)
+### 2) values-Datei anlegen (Auth/Policy/SQLite)
 
-Token-Datei: eine Zeile pro gültigem Token.
+Das Chart erstellt **automatisch**:
+- ein Secret `{{ release }}-glass-auth` (Token-Datei) und
+- eine ConfigMap `{{ release }}-glass-policy` (Policy-Datei).
 
-```bash
-kubectl -n glass create secret generic glass-auth-token \
-  --from-literal=token="secret-token"
-```
-
-> Das Secret wird später als Datei gemountet, z.B. `/mnt/auth/token`.
-
-### 3) KEK Secret erstellen (Encryption)
-
-`glass` erwartet pro KEK eine Datei `<kek_id>` im `KEK_DIR`.
-Inhalt: entweder **32 raw bytes** oder **base64 von 32 bytes**.
-
-Empfohlen: base64-Text (einfacher via `--from-literal`):
+Am angenehmsten ist deshalb eine eigene Values-Datei (statt `--set`-Spaghetti):
 
 ```bash
-NEW_KEK_B64="$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
+cat <<'YAML' > values.cluster.yaml
+image:
+  # Wichtig: Repository muss lowercase sein
+  repository: ghcr.io/timgst1/glass/glass
+  tag: "0.1.0"
+  pullPolicy: IfNotPresent
 
-kubectl -n glass create secret generic glass-kek \
-  --from-literal=default="${NEW_KEK_B64}"
-```
+auth:
+  mode: bearer
+  # Format: name=token (eine Zeile pro Token)
+  tokenFileContent: |
+    webhook=secret-token
 
-> `default` ist hier die `kek_id`. Der aktive KEK ist später `ACTIVE_KEK_ID=default`.
-
-### 4) Policy ConfigMap erstellen (AuthZ)
-
-Beispiel-Policy: erlaubt Lesen/Schreiben/Listen für `team-a/` (angepasst an deinen Subject).
-
-> Wichtig: Policies müssen zu deinem Subject passen (z.B. `kind=bearer`, `name=webhook`).
-
-```bash
-cat <<'YAML' | kubectl -n glass apply -f -
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: glass-policy
-data:
-  policy.yaml: |
-    apiVersion: glass/v1
+policy:
+  # Beispiel: erlaubt read/write/list für team-a/
+  content: |
+    apiVersion: glass.secretstore/v1alpha1
     kind: Policy
+    metadata:
+      name: default
+    subjects:
+      - name: eso
+        match:
+          kind: bearer
+          name: webhook
     roles:
       - name: team-a-rw
         permissions:
@@ -88,85 +79,66 @@ data:
           - action: list
             keyPrefix: "team-a/"
     bindings:
-      - subject:
-          kind: bearer
-          name: webhook
-        role: team-a-rw
+      - subject: eso
+        roles: [team-a-rw]
+
+storage:
+  backend: sqlite
+  sqlitePath: /data/glass.db
+  persistence:
+    # WICHTIG: true => PVC/PV (persistent). false => emptyDir (flüchtig).
+    enabled: true
+    size: 1Gi
+    # storageClassName: "YOUR_STORAGECLASS"
 YAML
 ```
 
-### 5) Helm Install / Upgrade
-
-Da ich deinen Chart-Pfad/Values nicht “raten” will: nutze im Repo einmal:
+### 3) Deploy
 
 ```bash
-helm show values ./charts/glass > values-default.yaml
+helm upgrade --install glass ./charts/glass -n glass -f values.cluster.yaml
 ```
 
-Dann installierst du mit den Kern-Parametern. Beispiel (Pfad ggf. anpassen):
+### 4) Status prüfen
 
-```bash
-helm upgrade --install glass ./charts/glass -n glass \
-  --set env.AUTH_MODE="bearer" \
-  --set env.AUTH_TOKEN_FILE="/mnt/auth/token" \
-  --set env.POLICY_FILE="/etc/glass/policy.yaml" \
-  --set env.STORAGE_BACKEND="sqlite" \
-  --set env.SQLITE_PATH="/data/glass.db" \
-  --set env.ENCRYPTION_MODE="envelope" \
-  --set env.KEK_DIR="/mnt/keks" \
-  --set env.ACTIVE_KEK_ID="default"
-```
-
-Und du brauchst die passenden Volumes/Mounts:
-- PVC → `/data`
-- Secret `glass-auth-token` → `/mnt/auth/token`
-- Secret `glass-kek` → `/mnt/keks/default`
-- ConfigMap `glass-policy` → `/etc/glass/policy.yaml`
-
-Falls dein Chart das nicht direkt anbietet: `values.yaml` entsprechend erweitern (extraVolumes/extraVolumeMounts o.ä.).
-
-### 6) Status prüfen
+> Hinweis: Der Service heißt standardmäßig `<release>-glass`.  
+> Bei `--install glass` ist das **`glass-glass`**.
 
 ```bash
 kubectl -n glass get pods
-kubectl -n glass logs deploy/glass -f
 kubectl -n glass get svc
+kubectl -n glass get pvc
+kubectl -n glass logs deploy/glass-glass -f
 ```
 
-### 7) API testen (port-forward)
+### 5) API testen (port-forward)
 
 ```bash
-kubectl -n glass port-forward svc/glass 8080:8080
+kubectl -n glass port-forward svc/glass-glass 8080:8080
 ```
 
 Write:
 
 ```bash
-curl -sS -X PUT "http://127.0.0.1:8080/v1/secret" \
-  -H "Authorization: Bearer secret-token" \
-  -H "Content-Type: application/json" \
-  -d '{"key":"team-a/db","value":"dbpass"}'
+curl -sS -X PUT "http://127.0.0.1:8080/v1/secret"   -H "Authorization: Bearer secret-token"   -H "Content-Type: application/json"   -d '{"key":"team-a/db","value":"dbpass"}'
 ```
 
 Read:
 
 ```bash
-curl -sS "http://127.0.0.1:8080/v1/secret?key=team-a/db" \
-  -H "Authorization: Bearer secret-token"
+curl -sS "http://127.0.0.1:8080/v1/secret?key=team-a/db"   -H "Authorization: Bearer secret-token"
 ```
 
 Meta:
 
 ```bash
-curl -sS "http://127.0.0.1:8080/v1/secret/meta?key=team-a/db" \
-  -H "Authorization: Bearer secret-token"
+curl -sS "http://127.0.0.1:8080/v1/secret/meta?key=team-a/db"   -H "Authorization: Bearer secret-token"
 ```
 
 Bulk/List (ESO-friendly Map; default `keys=relative`, `format=map`):
 
 ```bash
-curl -sS "http://127.0.0.1:8080/v1/secrets?prefix=team-a/" \
-  -H "Authorization: Bearer secret-token"
+curl -sS "http://127.0.0.1:8080/v1/secrets?prefix=team-a/"   -H "Authorization: Bearer secret-token"
 ```
 
 Antwort-Beispiel:
@@ -174,9 +146,6 @@ Antwort-Beispiel:
 ```json
 {"data":{"db":"dbpass"}}
 ```
-
----
-
 ## Konfiguration (wichtigste ENV Vars)
 
 - `AUTH_MODE`: `bearer` | `noop`
@@ -220,15 +189,10 @@ Damit existieren im Pod dann z.B.:
 - `/mnt/keks/kek-2026-01`
 
 #### Schritt B: ACTIVE_KEK_ID umstellen + rollout
-Setze in Helm Values:
-- `ACTIVE_KEK_ID=kek-2026-01`
 
-und rolle aus:
+Stelle im **Deployment** die Env-Variable `ACTIVE_KEK_ID` auf den neuen Key (z.B. `kek-2026-01`) um und rolle das Release aus.
 
-```bash
-helm upgrade --install glass ./charts/glass -n glass \
-  --set env.ACTIVE_KEK_ID="kek-2026-01"
-```
+> Hinweis: Das aktuelle Helm-Chart verdrahtet standardmäßig nur `AUTH_*`, `POLICY_FILE`, `STORAGE_BACKEND`, `SQLITE_PATH`.Wenn du Envelope Encryption im Cluster aktiv nutzen willst, müssen zusätzlich die Env Vars `ENCRYPTION_MODE`, `KEK_DIR`, `ACTIVE_KEK_ID` **und** ein Secret-Mount für den KEK Directory-Pfad im Chart vorhanden sein.
 
 Ab jetzt sind **neue Writes** automatisch mit `kek-2026-01` gewrappt.
 
@@ -244,7 +208,7 @@ glass rewrap-kek --db /data/glass.db --kek-dir /mnt/keks --from default --to kek
 ##### Option 1: direkt im laufenden Pod (am einfachsten)
 
 ```bash
-kubectl -n glass exec -it deploy/glass -- \
+kubectl -n glass exec -it deploy/glass-glass -- \
   glass rewrap-kek --db /data/glass.db --kek-dir /mnt/keks --from default --to kek-2026-01 --dry-run
 ```
 
@@ -334,7 +298,7 @@ metadata:
 spec:
   provider:
     webhook:
-      url: "http://glass.glass.svc.cluster.local:8080/v1/secrets?prefix={{ .remoteRef.key }}&format=map&keys=relative"
+      url: "http://glass-glass.glass.svc.cluster.local:8080/v1/secrets?prefix={{ .remoteRef.key }}&format=map&keys=relative"
       method: GET
       result:
         jsonPath: "$.data"
@@ -388,3 +352,4 @@ spec:
 - SQLite + PVC bedeutet: standardmäßig **1 Replica** (sonst brauchst du RWX oder externes DB-Konzept).
 - KEKs sind hochsensitiv: RBAC und Secret-Access strikt halten.
 - Bearer-Token ist MVP-freundlich; langfristig ist K8s-native Auth (ServiceAccount/TokenReview/OIDC) der bessere Weg.
+
