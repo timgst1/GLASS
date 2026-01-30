@@ -28,21 +28,37 @@ func LoadKeyring(dir, activeID string) (*Keyring, error) {
 
 	kr := &Keyring{activeID: activeID, keys: map[string][]byte{}}
 	for _, e := range ents {
+		name := e.Name()
+
+		if strings.HasPrefix(name, "..") {
+			continue
+		}
+
+		p := filepath.Join(dir, name)
+
 		if e.IsDir() {
 			continue
 		}
-		id := e.Name()
-		p := filepath.Join(dir, id)
+
+		if e.Type()&os.ModeSymLink != 0 {
+			fi, err := os.Stat(p)
+			if err != nil {
+				return nil, fmt.Errorf("stat kek %q: %w", name, err)
+			}
+			if fi.IsDir() {
+				continue
+			}
+		}
 
 		b, err := os.ReadFile(p)
 		if err != nil {
-			return nil, fmt.Errorf("read kek %q: %w", id, err)
+			return nil, fmt.Errorf("read kek %q: %w", name, err)
 		}
 		key, err := parseKEK(b)
 		if err != nil {
-			return nil, fmt.Errorf("parse kek %q: %w", id, err)
+			return nil, fmt.Errorf("parse kek %q: %w", name, err)
 		}
-		kr.keys[id] = key
+		kr.keys[name] = key
 	}
 
 	if len(kr.keys) == 0 {
