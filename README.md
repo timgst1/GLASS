@@ -35,13 +35,27 @@
 kubectl create namespace glass
 ```
 
-### 2) values-Datei anlegen (Auth/Policy/SQLite)
+### 2) KEK Secret erstellen (Encryption)
+
+`glass` nutzt **Envelope Encryption**: pro Secret-Version wird ein DEK erzeugt und mit einem KEK “gewrappt”.
+Der KEK kommt aus einem K8s Secret, das als Directory gemountet wird.
+
+Der Datei-Name ist die `kek_id` (z.B. `default`). Der Inhalt muss **base64 von 32 bytes** (oder 32 raw bytes) sein.
+
+```bash
+KEK_B64="$(head -c 32 /dev/urandom | base64 | tr -d '
+')"
+
+kubectl -n glass create secret generic glass-kek   --from-literal=default="${KEK_B64}"
+```
+
+### 3) values-Datei anlegen (Auth/Policy/SQLite + Encryption)
 
 Das Chart erstellt **automatisch**:
 - ein Secret `{{ release }}-glass-auth` (Token-Datei) und
 - eine ConfigMap `{{ release }}-glass-policy` (Policy-Datei).
 
-Am angenehmsten ist deshalb eine eigene Values-Datei (statt `--set`-Spaghetti):
+Am angenehmsten ist deshalb eine eigene Values-Datei:
 
 ```bash
 cat <<'YAML' > values.cluster.yaml
@@ -90,16 +104,23 @@ storage:
     enabled: true
     size: 1Gi
     # storageClassName: "YOUR_STORAGECLASS"
+
+# Encryption at rest (Envelope)
+encryption:
+  mode: envelope        # none|envelope
+  kekDir: /mnt/keks
+  activeKekId: default
+  kekSecretName: glass-kek
 YAML
 ```
 
-### 3) Deploy
+### 4) Deploy
 
 ```bash
 helm upgrade --install glass ./charts/glass -n glass -f values.cluster.yaml
 ```
 
-### 4) Status prüfen
+### 5) Status prüfen
 
 > Hinweis: Der Service heißt standardmäßig `<release>-glass`.  
 > Bei `--install glass` ist das **`glass-glass`**.
@@ -111,7 +132,7 @@ kubectl -n glass get pvc
 kubectl -n glass logs deploy/glass-glass -f
 ```
 
-### 5) API testen (port-forward)
+### 6) API testen (port-forward)
 
 ```bash
 kubectl -n glass port-forward svc/glass-glass 8080:8080
@@ -146,22 +167,103 @@ Antwort-Beispiel:
 ```json
 {"data":{"db":"dbpass"}}
 ```
-## Konfiguration (wichtigste ENV Vars)
+## Konfiguration (Helm Values)
 
-- `AUTH_MODE`: `bearer` | `noop`
-- `AUTH_TOKEN_FILE`: Pfad zur Token-Datei (bei `bearer`)
-- `POLICY_FILE`: Pfad zur Policy YAML
-- `STORAGE_BACKEND`: `sqlite` | `memory`
-- `SQLITE_PATH`: z.B. `/data/glass.db`
+Das Helm-Chart setzt die wichtigsten Einstellungen als ENV Vars im Pod. Relevant sind vor allem:
 
-Encryption:
-- `ENCRYPTION_MODE`: `envelope` (empfohlen) | `none`
-- `KEK_DIR`: Directory mit KEK-Dateien (K8s Secret mount)
-- `ACTIVE_KEK_ID`: Dateiname des aktiven KEKs (z.B. `default`)
+### Auth
+
+```yaml
+auth:
+  mode: bearer
+  tokenFileContent: |
+    webhook=secret-token
+```
+
+### Policy
+
+```yaml
+policy:
+  content: |
+    # ...deine Policy...
+```
+
+### Storage (SQLite)
+
+```yaml
+storage:
+  backend: sqlite
+  sqlitePath: /data/glass.db
+  persistence:
+    enabled: true
+    size: 1Gi
+    # storageClassName: "YOUR_STORAGECLASS"
+```
+
+### Encryption at Rest (Envelope)
+
+```yaml
+encryption:
+  mode: envelope        # none|envelope
+  kekDir: /mnt/keks
+  activeKekId: default
+  kekSecretName: glass-kek
+```
+
+> Intern werden daraus u.a. diese ENV Vars gesetzt: `AUTH_MODE`, `AUTH_TOKEN_FILE`, `POLICY_FILE`, `STORAGE_BACKEND`, `SQLITE_PATH`, sowie (bei Encryption) `ENCRYPTION_MODE`, `KEK_DIR`, `ACTIVE_KEK_ID`.
 
 ---
 
+
 ## Encryption at Rest (Envelope) – Betrieb & Rotation
+
+### Voraussetzung: Helm-Chart muss Encryption verdrahten
+
+Dein Chart verdrahtet standardmäßig nur `AUTH_*`, `POLICY_FILE`, `STORAGE_BACKEND`, `SQLITE_PATH`.
+Für Envelope Encryption müssen zusätzlich **Env Vars** und ein **Secret-Mount** für die KEKs gesetzt werden.
+
+Wenn dein Chart diese `encryption.*` Values noch nicht nutzt, ergänze einmalig:
+
+#### Datei: `charts/glass/values.yaml`
+
+```yaml
+encryption:
+  mode: none            # none|envelope
+  kekDir: /mnt/keks
+  activeKekId: default
+  kekSecretName: glass-kek
+```
+
+#### Datei: `charts/glass/templates/deployment.yaml`
+
+Unter `env:` ergänzen:
+
+```yaml
+            - name: ENCRYPTION_MODE
+              value: {{ .Values.encryption.mode | quote }}
+            - name: KEK_DIR
+              value: {{ .Values.encryption.kekDir | quote }}
+            - name: ACTIVE_KEK_ID
+              value: {{ .Values.encryption.activeKekId | quote }}
+```
+
+Unter `volumeMounts:` ergänzen:
+
+```yaml
+            - name: keks
+              mountPath: {{ .Values.encryption.kekDir | quote }}
+              readOnly: true
+```
+
+Und unter `volumes:` ergänzen:
+
+```yaml
+          - name: keks
+            secret:
+              secretName: {{ .Values.encryption.kekSecretName | quote }}
+```
+
+> Danach `helm upgrade` ausführen (siehe Quickstart) und im Pod prüfen, dass `/mnt/keks/default` existiert.
 
 ### Wie es funktioniert (kurz)
 - Pro Secret-Version wird ein **DEK** (Data Encryption Key) erzeugt.
@@ -177,11 +279,10 @@ Ziel: neue Writes mit neuem KEK, alte Records nachziehen (rewrap), dann alten KE
 Neuen Key generieren und als weitere Datei im gleichen Secret ablegen:
 
 ```bash
-NEW2_KEK_B64="$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
+NEW2_KEK_B64="$(head -c 32 /dev/urandom | base64 | tr -d '
+')"
 
-kubectl -n glass patch secret glass-kek \
-  --type merge \
-  -p "{\"stringData\":{\"kek-2026-01\":\"${NEW2_KEK_B64}\"}}"
+kubectl -n glass patch secret glass-kek   --type merge   -p "{\"stringData\":{\"kek-2026-01\":\"${NEW2_KEK_B64}\"}}"
 ```
 
 Damit existieren im Pod dann z.B.:
@@ -190,9 +291,18 @@ Damit existieren im Pod dann z.B.:
 
 #### Schritt B: ACTIVE_KEK_ID umstellen + rollout
 
-Stelle im **Deployment** die Env-Variable `ACTIVE_KEK_ID` auf den neuen Key (z.B. `kek-2026-01`) um und rolle das Release aus.
+Passe in deiner `values.cluster.yaml` den aktiven Key an:
 
-> Hinweis: Das aktuelle Helm-Chart verdrahtet standardmäßig nur `AUTH_*`, `POLICY_FILE`, `STORAGE_BACKEND`, `SQLITE_PATH`.Wenn du Envelope Encryption im Cluster aktiv nutzen willst, müssen zusätzlich die Env Vars `ENCRYPTION_MODE`, `KEK_DIR`, `ACTIVE_KEK_ID` **und** ein Secret-Mount für den KEK Directory-Pfad im Chart vorhanden sein.
+```yaml
+encryption:
+  activeKekId: kek-2026-01
+```
+
+Dann rolle das Release aus:
+
+```bash
+helm upgrade --install glass ./charts/glass -n glass -f values.cluster.yaml
+```
 
 Ab jetzt sind **neue Writes** automatisch mit `kek-2026-01` gewrappt.
 
@@ -208,13 +318,14 @@ glass rewrap-kek --db /data/glass.db --kek-dir /mnt/keks --from default --to kek
 ##### Option 1: direkt im laufenden Pod (am einfachsten)
 
 ```bash
-kubectl -n glass exec -it deploy/glass-glass -- \
-  glass rewrap-kek --db /data/glass.db --kek-dir /mnt/keks --from default --to kek-2026-01 --dry-run
+kubectl -n glass exec -it deploy/glass-glass --   glass rewrap-kek --db /data/glass.db --kek-dir /mnt/keks --from default --to kek-2026-01 --dry-run
+
+kubectl -n glass exec -it deploy/glass-glass --   glass rewrap-kek --db /data/glass.db --kek-dir /mnt/keks --from default --to kek-2026-01
 ```
 
 ##### Option 2: Kubernetes Job (sauber/automatisierbar)
 
-> Passe `image:` und Volume-Referenzen (PVC-Name etc.) an deinen Chart an.
+> Passe `image:` und Volume-Referenzen (PVC-Name etc.) an deinen Cluster/Chart an.
 
 ```yaml
 apiVersion: batch/v1
@@ -257,10 +368,9 @@ spec:
 ```
 
 #### Schritt D: alten KEK entfernen (erst nach Rewrap!)
-Wenn `rewrap-kek` durch ist und alles ok: entferne `default` aus dem K8s Secret.
+Wenn `rewrap-kek` durch ist und `--dry-run` danach **0** meldet, kannst du `default` aus dem K8s Secret entfernen.
 
----
-
+> Wichtig: Entferne den alten KEK erst, wenn wirklich alle Records umgestellt sind – sonst kann `glass` alte Secrets nicht mehr entschlüsseln.
 ## ESO Integration (Webhook Provider)
 
 Offizielle Doku:
@@ -352,4 +462,3 @@ spec:
 - SQLite + PVC bedeutet: standardmäßig **1 Replica** (sonst brauchst du RWX oder externes DB-Konzept).
 - KEKs sind hochsensitiv: RBAC und Secret-Access strikt halten.
 - Bearer-Token ist MVP-freundlich; langfristig ist K8s-native Auth (ServiceAccount/TokenReview/OIDC) der bessere Weg.
-
