@@ -1,7 +1,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/timgst1/glass
+  repository: ghcr.io/timgst1/glass/glass
   tag: "0.1.0"
   pullPolicy: IfNotPresent
 
