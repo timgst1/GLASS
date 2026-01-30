@@ -40,7 +40,7 @@ func LoadKeyring(dir, activeID string) (*Keyring, error) {
 			continue
 		}
 
-		if e.Type()&os.ModeSymLink != 0 {
+		if e.Type()&os.ModeSymlink != 0 {
 			fi, err := os.Stat(p)
 			if err != nil {
 				return nil, fmt.Errorf("stat kek %q: %w", name, err)
